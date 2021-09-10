@@ -22,19 +22,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/adal"
 	"github.com/Azure/go-autorest/autorest/azure"
-	"k8s.io/klog/v2"
+	"k8s.io/klog"
 
 	"k8s.io/apimachinery/pkg/util/net"
 	restclient "k8s.io/client-go/rest"
 )
-
-type configMode int
 
 const (
 	azureTokenKey = "azureTokenKey"
@@ -49,10 +46,6 @@ const (
 	cfgExpiresOn    = "expires-on"
 	cfgEnvironment  = "environment"
 	cfgApiserverID  = "apiserver-id"
-	cfgConfigMode   = "config-mode"
-
-	configModeDefault       configMode = 0
-	configModeOmitSPNPrefix configMode = 1
 )
 
 func init() {
@@ -84,47 +77,18 @@ func (c *azureTokenCache) setToken(tokenKey string, token *azureToken) {
 	c.cache[tokenKey] = token
 }
 
-var warnOnce sync.Once
-
 func newAzureAuthProvider(_ string, cfg map[string]string, persister restclient.AuthProviderConfigPersister) (restclient.AuthProvider, error) {
-	// deprecated in v1.22, remove in v1.25
-	// this should be updated to use klog.Warningf in v1.24 to more actively warn consumers
-	warnOnce.Do(func() {
-		klog.V(1).Infof(`WARNING: the azure auth plugin is deprecated in v1.22+, unavailable in v1.25+; use https://github.com/Azure/kubelogin instead.
-To learn more, consult https://kubernetes.io/docs/reference/access-authn-authz/authentication/#client-go-credential-plugins`)
-	})
+	var ts tokenSource
 
-	var (
-		ts          tokenSource
-		environment azure.Environment
-		err         error
-		mode        configMode
-	)
-
-	environment, err = azure.EnvironmentFromName(cfg[cfgEnvironment])
+	environment, err := azure.EnvironmentFromName(cfg[cfgEnvironment])
 	if err != nil {
 		environment = azure.PublicCloud
 	}
-
-	mode = configModeDefault
-	if cfg[cfgConfigMode] != "" {
-		configModeInt, err := strconv.Atoi(cfg[cfgConfigMode])
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse %s, error: %s", cfgConfigMode, err)
-		}
-		mode = configMode(configModeInt)
-		switch mode {
-		case configModeOmitSPNPrefix:
-		case configModeDefault:
-		default:
-			return nil, fmt.Errorf("%s:%s is not a valid mode", cfgConfigMode, cfg[cfgConfigMode])
-		}
-	}
-	ts, err = newAzureTokenSourceDeviceCode(environment, cfg[cfgClientID], cfg[cfgTenantID], cfg[cfgApiserverID], mode)
+	ts, err = newAzureTokenSourceDeviceCode(environment, cfg[cfgClientID], cfg[cfgTenantID], cfg[cfgApiserverID])
 	if err != nil {
 		return nil, fmt.Errorf("creating a new azure token source for device code authentication: %v", err)
 	}
-	cacheSource := newAzureTokenSource(ts, cache, cfg, mode, persister)
+	cacheSource := newAzureTokenSource(ts, cache, cfg, persister)
 
 	return &azureAuthProvider{
 		tokenSource: cacheSource,
@@ -189,25 +153,22 @@ type azureToken struct {
 
 type tokenSource interface {
 	Token() (*azureToken, error)
-	Refresh(*azureToken) (*azureToken, error)
 }
 
 type azureTokenSource struct {
-	source     tokenSource
-	cache      *azureTokenCache
-	lock       sync.Mutex
-	configMode configMode
-	cfg        map[string]string
-	persister  restclient.AuthProviderConfigPersister
+	source    tokenSource
+	cache     *azureTokenCache
+	lock      sync.Mutex
+	cfg       map[string]string
+	persister restclient.AuthProviderConfigPersister
 }
 
-func newAzureTokenSource(source tokenSource, cache *azureTokenCache, cfg map[string]string, configMode configMode, persister restclient.AuthProviderConfigPersister) tokenSource {
+func newAzureTokenSource(source tokenSource, cache *azureTokenCache, cfg map[string]string, persister restclient.AuthProviderConfigPersister) tokenSource {
 	return &azureTokenSource{
-		source:     source,
-		cache:      cache,
-		cfg:        cfg,
-		persister:  persister,
-		configMode: configMode,
+		source:    source,
+		cache:     cache,
+		cfg:       cfg,
+		persister: persister,
 	}
 }
 
@@ -220,66 +181,33 @@ func (ts *azureTokenSource) Token() (*azureToken, error) {
 
 	var err error
 	token := ts.cache.getToken(azureTokenKey)
-
-	if token != nil && !token.token.IsExpired() {
-		return token, nil
-	}
-
-	// retrieve from config if no cache
 	if token == nil {
-		tokenFromCfg, err := ts.retrieveTokenFromCfg()
-
-		if err == nil {
-			token = tokenFromCfg
+		token, err = ts.retrieveTokenFromCfg()
+		if err != nil {
+			token, err = ts.source.Token()
+			if err != nil {
+				return nil, fmt.Errorf("acquiring a new fresh token: %v", err)
+			}
 		}
-	}
-
-	if token != nil {
-		// cache and return if the token is as good
-		// avoids frequent persistor calls
 		if !token.token.IsExpired() {
 			ts.cache.setToken(azureTokenKey, token)
-			return token, nil
-		}
-
-		klog.V(4).Info("Refreshing token.")
-		tokenFromRefresh, err := ts.Refresh(token)
-		switch {
-		case err == nil:
-			token = tokenFromRefresh
-		case autorest.IsTokenRefreshError(err):
-			klog.V(4).Infof("Failed to refresh expired token, proceed to auth: %v", err)
-			// reset token to nil so that the token source will be used to acquire new
-			token = nil
-		default:
-			return nil, fmt.Errorf("unexpected error when refreshing token: %v", err)
+			err = ts.storeTokenInCfg(token)
+			if err != nil {
+				return nil, fmt.Errorf("storing the token in configuration: %v", err)
+			}
 		}
 	}
-
-	if token == nil {
-		tokenFromSource, err := ts.source.Token()
-		if err != nil {
-			return nil, fmt.Errorf("failed acquiring new token: %v", err)
-		}
-		token = tokenFromSource
-	}
-
-	// sanity check
-	if token == nil {
-		return nil, fmt.Errorf("unable to acquire token")
-	}
-
-	// corner condition, newly got token is valid but expired
 	if token.token.IsExpired() {
-		return nil, fmt.Errorf("newly acquired token is expired")
+		token, err = ts.refreshToken(token)
+		if err != nil {
+			return nil, fmt.Errorf("refreshing the expired token: %v", err)
+		}
+		ts.cache.setToken(azureTokenKey, token)
+		err = ts.storeTokenInCfg(token)
+		if err != nil {
+			return nil, fmt.Errorf("storing the refreshed token in configuration: %v", err)
+		}
 	}
-
-	err = ts.storeTokenInCfg(token)
-	if err != nil {
-		return nil, fmt.Errorf("storing the refreshed token in configuration: %v", err)
-	}
-	ts.cache.setToken(azureTokenKey, token)
-
 	return token, nil
 }
 
@@ -304,9 +232,9 @@ func (ts *azureTokenSource) retrieveTokenFromCfg() (*azureToken, error) {
 	if tenantID == "" {
 		return nil, fmt.Errorf("no tenant ID in cfg: %s", cfgTenantID)
 	}
-	resourceID := ts.cfg[cfgApiserverID]
-	if resourceID == "" {
-		return nil, fmt.Errorf("no apiserver ID in cfg: %s", cfgApiserverID)
+	apiserverID := ts.cfg[cfgApiserverID]
+	if apiserverID == "" {
+		return nil, fmt.Errorf("no apiserver ID in cfg: %s", apiserverID)
 	}
 	expiresIn := ts.cfg[cfgExpiresIn]
 	if expiresIn == "" {
@@ -316,10 +244,6 @@ func (ts *azureTokenSource) retrieveTokenFromCfg() (*azureToken, error) {
 	if expiresOn == "" {
 		return nil, fmt.Errorf("no expiresOn in cfg: %s", cfgExpiresOn)
 	}
-	tokenAudience := resourceID
-	if ts.configMode == configModeDefault {
-		tokenAudience = fmt.Sprintf("spn:%s", resourceID)
-	}
 
 	return &azureToken{
 		token: adal.Token{
@@ -328,13 +252,13 @@ func (ts *azureTokenSource) retrieveTokenFromCfg() (*azureToken, error) {
 			ExpiresIn:    json.Number(expiresIn),
 			ExpiresOn:    json.Number(expiresOn),
 			NotBefore:    json.Number(expiresOn),
-			Resource:     tokenAudience,
+			Resource:     fmt.Sprintf("spn:%s", apiserverID),
 			Type:         tokenType,
 		},
 		environment: environment,
 		clientID:    clientID,
 		tenantID:    tenantID,
-		apiserverID: resourceID,
+		apiserverID: apiserverID,
 	}, nil
 }
 
@@ -348,7 +272,6 @@ func (ts *azureTokenSource) storeTokenInCfg(token *azureToken) error {
 	newCfg[cfgApiserverID] = token.apiserverID
 	newCfg[cfgExpiresIn] = string(token.token.ExpiresIn)
 	newCfg[cfgExpiresOn] = string(token.token.ExpiresOn)
-	newCfg[cfgConfigMode] = strconv.Itoa(int(ts.configMode))
 
 	err := ts.persister.Persist(newCfg)
 	if err != nil {
@@ -358,28 +281,15 @@ func (ts *azureTokenSource) storeTokenInCfg(token *azureToken) error {
 	return nil
 }
 
-func (ts *azureTokenSource) Refresh(token *azureToken) (*azureToken, error) {
-	return ts.source.Refresh(token)
-}
-
-// refresh outdated token with adal.
-func (ts *azureTokenSourceDeviceCode) Refresh(token *azureToken) (*azureToken, error) {
+func (ts *azureTokenSource) refreshToken(token *azureToken) (*azureToken, error) {
 	env, err := azure.EnvironmentFromName(token.environment)
 	if err != nil {
 		return nil, err
 	}
 
-	var oauthConfig *adal.OAuthConfig
-	if ts.configMode == configModeOmitSPNPrefix {
-		oauthConfig, err = adal.NewOAuthConfigWithAPIVersion(env.ActiveDirectoryEndpoint, token.tenantID, nil)
-		if err != nil {
-			return nil, fmt.Errorf("building the OAuth configuration without api-version for token refresh: %v", err)
-		}
-	} else {
-		oauthConfig, err = adal.NewOAuthConfig(env.ActiveDirectoryEndpoint, token.tenantID)
-		if err != nil {
-			return nil, fmt.Errorf("building the OAuth configuration for token refresh: %v", err)
-		}
+	oauthConfig, err := adal.NewOAuthConfig(env.ActiveDirectoryEndpoint, token.tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("building the OAuth configuration for token refresh: %v", err)
 	}
 
 	callback := func(t adal.Token) error {
@@ -396,8 +306,7 @@ func (ts *azureTokenSourceDeviceCode) Refresh(token *azureToken) (*azureToken, e
 	}
 
 	if err := spt.Refresh(); err != nil {
-		// Caller expects IsTokenRefreshError(err) to trigger prompt.
-		return nil, fmt.Errorf("refreshing token: %w", err)
+		return nil, fmt.Errorf("refreshing token: %v", err)
 	}
 
 	return &azureToken{
@@ -414,10 +323,9 @@ type azureTokenSourceDeviceCode struct {
 	clientID    string
 	tenantID    string
 	apiserverID string
-	configMode  configMode
 }
 
-func newAzureTokenSourceDeviceCode(environment azure.Environment, clientID string, tenantID string, apiserverID string, configMode configMode) (tokenSource, error) {
+func newAzureTokenSourceDeviceCode(environment azure.Environment, clientID string, tenantID string, apiserverID string) (tokenSource, error) {
 	if clientID == "" {
 		return nil, errors.New("client-id is empty")
 	}
@@ -432,25 +340,13 @@ func newAzureTokenSourceDeviceCode(environment azure.Environment, clientID strin
 		clientID:    clientID,
 		tenantID:    tenantID,
 		apiserverID: apiserverID,
-		configMode:  configMode,
 	}, nil
 }
 
 func (ts *azureTokenSourceDeviceCode) Token() (*azureToken, error) {
-	var (
-		oauthConfig *adal.OAuthConfig
-		err         error
-	)
-	if ts.configMode == configModeOmitSPNPrefix {
-		oauthConfig, err = adal.NewOAuthConfigWithAPIVersion(ts.environment.ActiveDirectoryEndpoint, ts.tenantID, nil)
-		if err != nil {
-			return nil, fmt.Errorf("building the OAuth configuration without api-version for device code authentication: %v", err)
-		}
-	} else {
-		oauthConfig, err = adal.NewOAuthConfig(ts.environment.ActiveDirectoryEndpoint, ts.tenantID)
-		if err != nil {
-			return nil, fmt.Errorf("building the OAuth configuration for device code authentication: %v", err)
-		}
+	oauthConfig, err := adal.NewOAuthConfig(ts.environment.ActiveDirectoryEndpoint, ts.tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("building the OAuth configuration for device code authentication: %v", err)
 	}
 	client := &autorest.Client{}
 	deviceCode, err := adal.InitiateDeviceAuth(client, *oauthConfig, ts.clientID, ts.apiserverID)

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"google.golang.org/protobuf/internal/detrand"
 	"google.golang.org/protobuf/internal/pragma"
 	pref "google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -16,11 +15,6 @@ import (
 type reflectMessageInfo struct {
 	fields map[pref.FieldNumber]*fieldInfo
 	oneofs map[pref.Name]*oneofInfo
-
-	// fieldTypes contains the zero value of an enum or message field.
-	// For lists, it contains the element type.
-	// For maps, it contains the entry value type.
-	fieldTypes map[pref.FieldNumber]interface{}
 
 	// denseFields is a subset of fields where:
 	//	0 < fieldDesc.Number() < len(denseFields)
@@ -42,7 +36,6 @@ func (mi *MessageInfo) makeReflectFuncs(t reflect.Type, si structInfo) {
 	mi.makeKnownFieldsFunc(si)
 	mi.makeUnknownFieldsFunc(t, si)
 	mi.makeExtensionFieldsFunc(t, si)
-	mi.makeFieldTypes(si)
 }
 
 // makeKnownFieldsFunc generates functions for operations that can be performed
@@ -58,23 +51,17 @@ func (mi *MessageInfo) makeKnownFieldsFunc(si structInfo) {
 	for i := 0; i < fds.Len(); i++ {
 		fd := fds.Get(i)
 		fs := si.fieldsByNumber[fd.Number()]
-		isOneof := fd.ContainingOneof() != nil && !fd.ContainingOneof().IsSynthetic()
-		if isOneof {
-			fs = si.oneofsByName[fd.ContainingOneof().Name()]
-		}
 		var fi fieldInfo
 		switch {
-		case fs.Type == nil:
-			fi = fieldInfoForMissing(fd) // never occurs for officially generated message types
-		case isOneof:
-			fi = fieldInfoForOneof(fd, fs, mi.Exporter, si.oneofWrappersByNumber[fd.Number()])
+		case fd.ContainingOneof() != nil:
+			fi = fieldInfoForOneof(fd, si.oneofsByName[fd.ContainingOneof().Name()], mi.Exporter, si.oneofWrappersByNumber[fd.Number()])
 		case fd.IsMap():
 			fi = fieldInfoForMap(fd, fs, mi.Exporter)
 		case fd.IsList():
 			fi = fieldInfoForList(fd, fs, mi.Exporter)
 		case fd.IsWeak():
 			fi = fieldInfoForWeakMessage(fd, si.weakOffset)
-		case fd.Message() != nil:
+		case fd.Kind() == pref.MessageKind || fd.Kind() == pref.GroupKind:
 			fi = fieldInfoForMessage(fd, fs, mi.Exporter)
 		default:
 			fi = fieldInfoForScalar(fd, fs, mi.Exporter)
@@ -85,7 +72,7 @@ func (mi *MessageInfo) makeKnownFieldsFunc(si structInfo) {
 	mi.oneofs = map[pref.Name]*oneofInfo{}
 	for i := 0; i < md.Oneofs().Len(); i++ {
 		od := md.Oneofs().Get(i)
-		mi.oneofs[od.Name()] = makeOneofInfo(od, si, mi.Exporter)
+		mi.oneofs[od.Name()] = makeOneofInfo(od, si.oneofsByName[od.Name()], mi.Exporter, si.oneofWrappersByType)
 	}
 
 	mi.denseFields = make([]*fieldInfo, fds.Len()*2)
@@ -97,7 +84,7 @@ func (mi *MessageInfo) makeKnownFieldsFunc(si structInfo) {
 
 	for i := 0; i < fds.Len(); {
 		fd := fds.Get(i)
-		if od := fd.ContainingOneof(); od != nil && !od.IsSynthetic() {
+		if od := fd.ContainingOneof(); od != nil {
 			mi.rangeInfos = append(mi.rangeInfos, mi.oneofs[od.Name()])
 			i += od.Fields().Len()
 		} else {
@@ -105,53 +92,27 @@ func (mi *MessageInfo) makeKnownFieldsFunc(si structInfo) {
 			i++
 		}
 	}
-
-	// Introduce instability to iteration order, but keep it deterministic.
-	if len(mi.rangeInfos) > 1 && detrand.Bool() {
-		i := detrand.Intn(len(mi.rangeInfos) - 1)
-		mi.rangeInfos[i], mi.rangeInfos[i+1] = mi.rangeInfos[i+1], mi.rangeInfos[i]
-	}
 }
 
 func (mi *MessageInfo) makeUnknownFieldsFunc(t reflect.Type, si structInfo) {
-	switch {
-	case si.unknownOffset.IsValid() && si.unknownType == unknownFieldsAType:
-		// Handle as []byte.
+	mi.getUnknown = func(pointer) pref.RawFields { return nil }
+	mi.setUnknown = func(pointer, pref.RawFields) { return }
+	if si.unknownOffset.IsValid() {
 		mi.getUnknown = func(p pointer) pref.RawFields {
 			if p.IsNil() {
 				return nil
 			}
-			return *p.Apply(mi.unknownOffset).Bytes()
+			rv := p.Apply(si.unknownOffset).AsValueOf(unknownFieldsType)
+			return pref.RawFields(*rv.Interface().(*[]byte))
 		}
 		mi.setUnknown = func(p pointer, b pref.RawFields) {
 			if p.IsNil() {
 				panic("invalid SetUnknown on nil Message")
 			}
-			*p.Apply(mi.unknownOffset).Bytes() = b
+			rv := p.Apply(si.unknownOffset).AsValueOf(unknownFieldsType)
+			*rv.Interface().(*[]byte) = []byte(b)
 		}
-	case si.unknownOffset.IsValid() && si.unknownType == unknownFieldsBType:
-		// Handle as *[]byte.
-		mi.getUnknown = func(p pointer) pref.RawFields {
-			if p.IsNil() {
-				return nil
-			}
-			bp := p.Apply(mi.unknownOffset).BytesPtr()
-			if *bp == nil {
-				return nil
-			}
-			return **bp
-		}
-		mi.setUnknown = func(p pointer, b pref.RawFields) {
-			if p.IsNil() {
-				panic("invalid SetUnknown on nil Message")
-			}
-			bp := p.Apply(mi.unknownOffset).BytesPtr()
-			if *bp == nil {
-				*bp = new([]byte)
-			}
-			**bp = b
-		}
-	default:
+	} else {
 		mi.getUnknown = func(pointer) pref.RawFields {
 			return nil
 		}
@@ -175,58 +136,6 @@ func (mi *MessageInfo) makeExtensionFieldsFunc(t reflect.Type, si structInfo) {
 	} else {
 		mi.extensionMap = func(pointer) *extensionMap {
 			return (*extensionMap)(nil)
-		}
-	}
-}
-func (mi *MessageInfo) makeFieldTypes(si structInfo) {
-	md := mi.Desc
-	fds := md.Fields()
-	for i := 0; i < fds.Len(); i++ {
-		var ft reflect.Type
-		fd := fds.Get(i)
-		fs := si.fieldsByNumber[fd.Number()]
-		isOneof := fd.ContainingOneof() != nil && !fd.ContainingOneof().IsSynthetic()
-		if isOneof {
-			fs = si.oneofsByName[fd.ContainingOneof().Name()]
-		}
-		var isMessage bool
-		switch {
-		case fs.Type == nil:
-			continue // never occurs for officially generated message types
-		case isOneof:
-			if fd.Enum() != nil || fd.Message() != nil {
-				ft = si.oneofWrappersByNumber[fd.Number()].Field(0).Type
-			}
-		case fd.IsMap():
-			if fd.MapValue().Enum() != nil || fd.MapValue().Message() != nil {
-				ft = fs.Type.Elem()
-			}
-			isMessage = fd.MapValue().Message() != nil
-		case fd.IsList():
-			if fd.Enum() != nil || fd.Message() != nil {
-				ft = fs.Type.Elem()
-			}
-			isMessage = fd.Message() != nil
-		case fd.Enum() != nil:
-			ft = fs.Type
-			if fd.HasPresence() && ft.Kind() == reflect.Ptr {
-				ft = ft.Elem()
-			}
-		case fd.Message() != nil:
-			ft = fs.Type
-			if fd.IsWeak() {
-				ft = nil
-			}
-			isMessage = true
-		}
-		if isMessage && ft != nil && ft.Kind() != reflect.Ptr {
-			ft = reflect.PtrTo(ft) // never occurs for officially generated message types
-		}
-		if ft != nil {
-			if mi.fieldTypes == nil {
-				mi.fieldTypes = make(map[pref.FieldNumber]interface{})
-			}
-			mi.fieldTypes[fd.Number()] = reflect.Zero(ft).Interface()
 		}
 	}
 }
@@ -261,8 +170,6 @@ func (m *extensionMap) Has(xt pref.ExtensionType) (ok bool) {
 		return x.Value().List().Len() > 0
 	case xd.IsMap():
 		return x.Value().Map().Len() > 0
-	case xd.Message() != nil:
-		return x.Value().Message().IsValid()
 	}
 	return true
 }
@@ -279,28 +186,15 @@ func (m *extensionMap) Get(xt pref.ExtensionType) pref.Value {
 	return xt.Zero()
 }
 func (m *extensionMap) Set(xt pref.ExtensionType, v pref.Value) {
-	xd := xt.TypeDescriptor()
-	isValid := true
-	switch {
-	case !xt.IsValidValue(v):
-		isValid = false
-	case xd.IsList():
-		isValid = v.List().IsValid()
-	case xd.IsMap():
-		isValid = v.Map().IsValid()
-	case xd.Message() != nil:
-		isValid = v.Message().IsValid()
-	}
-	if !isValid {
+	if !xt.IsValidValue(v) {
 		panic(fmt.Sprintf("%v: assigning invalid value", xt.TypeDescriptor().FullName()))
 	}
-
 	if *m == nil {
 		*m = make(map[int32]ExtensionField)
 	}
 	var x ExtensionField
 	x.Set(xt, v)
-	(*m)[int32(xd.Number())] = x
+	(*m)[int32(xt.TypeDescriptor().Number())] = x
 }
 func (m *extensionMap) Mutable(xt pref.ExtensionType) pref.Value {
 	xd := xt.TypeDescriptor()
@@ -397,6 +291,7 @@ var (
 // pointer to a named Go struct. If the provided type has a ProtoReflect method,
 // it must be implemented by calling this method.
 func (mi *MessageInfo) MessageOf(m interface{}) pref.Message {
+	// TODO: Switch the input to be an opaque Pointer.
 	if reflect.TypeOf(m) != mi.GoReflectType {
 		panic(fmt.Sprintf("type mismatch: got %T, want %v", m, mi.GoReflectType))
 	}
@@ -410,17 +305,6 @@ func (mi *MessageInfo) MessageOf(m interface{}) pref.Message {
 func (m *messageReflectWrapper) pointer() pointer          { return m.p }
 func (m *messageReflectWrapper) messageInfo() *MessageInfo { return m.mi }
 
-// Reset implements the v1 proto.Message.Reset method.
-func (m *messageIfaceWrapper) Reset() {
-	if mr, ok := m.protoUnwrap().(interface{ Reset() }); ok {
-		mr.Reset()
-		return
-	}
-	rv := reflect.ValueOf(m.protoUnwrap())
-	if rv.Kind() == reflect.Ptr && !rv.IsNil() {
-		rv.Elem().Set(reflect.Zero(rv.Type().Elem()))
-	}
-}
 func (m *messageIfaceWrapper) ProtoReflect() pref.Message {
 	return (*messageReflectWrapper)(m)
 }
@@ -439,27 +323,24 @@ func (mi *MessageInfo) checkField(fd pref.FieldDescriptor) (*fieldInfo, pref.Ext
 	}
 	if fi != nil {
 		if fi.fieldDesc != fd {
-			if got, want := fd.FullName(), fi.fieldDesc.FullName(); got != want {
-				panic(fmt.Sprintf("mismatching field: got %v, want %v", got, want))
-			}
-			panic(fmt.Sprintf("mismatching field: %v", fd.FullName()))
+			panic("mismatching field descriptor")
 		}
 		return fi, nil
 	}
 
 	if fd.IsExtension() {
-		if got, want := fd.ContainingMessage().FullName(), mi.Desc.FullName(); got != want {
+		if fd.ContainingMessage().FullName() != mi.Desc.FullName() {
 			// TODO: Should this be exact containing message descriptor match?
-			panic(fmt.Sprintf("extension %v has mismatching containing message: got %v, want %v", fd.FullName(), got, want))
+			panic("mismatching containing message")
 		}
 		if !mi.Desc.ExtensionRanges().Has(fd.Number()) {
-			panic(fmt.Sprintf("extension %v extends %v outside the extension range", fd.FullName(), mi.Desc.FullName()))
+			panic("invalid extension field")
 		}
 		xtd, ok := fd.(pref.ExtensionTypeDescriptor)
 		if !ok {
-			panic(fmt.Sprintf("extension %v does not implement protoreflect.ExtensionTypeDescriptor", fd.FullName()))
+			panic("extension descriptor does not implement ExtensionTypeDescriptor")
 		}
 		return nil, xtd.Type()
 	}
-	panic(fmt.Sprintf("field %v is invalid", fd.FullName()))
+	panic("invalid field descriptor")
 }

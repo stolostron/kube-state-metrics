@@ -19,16 +19,12 @@ limitations under the License.
 package v1beta1
 
 import (
-	"context"
-	json "encoding/json"
-	"fmt"
 	"time"
 
 	v1beta1 "k8s.io/api/storage/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
-	storagev1beta1 "k8s.io/client-go/applyconfigurations/storage/v1beta1"
 	scheme "k8s.io/client-go/kubernetes/scheme"
 	rest "k8s.io/client-go/rest"
 )
@@ -41,15 +37,14 @@ type CSINodesGetter interface {
 
 // CSINodeInterface has methods to work with CSINode resources.
 type CSINodeInterface interface {
-	Create(ctx context.Context, cSINode *v1beta1.CSINode, opts v1.CreateOptions) (*v1beta1.CSINode, error)
-	Update(ctx context.Context, cSINode *v1beta1.CSINode, opts v1.UpdateOptions) (*v1beta1.CSINode, error)
-	Delete(ctx context.Context, name string, opts v1.DeleteOptions) error
-	DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error
-	Get(ctx context.Context, name string, opts v1.GetOptions) (*v1beta1.CSINode, error)
-	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.CSINodeList, error)
-	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
-	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.CSINode, err error)
-	Apply(ctx context.Context, cSINode *storagev1beta1.CSINodeApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.CSINode, err error)
+	Create(*v1beta1.CSINode) (*v1beta1.CSINode, error)
+	Update(*v1beta1.CSINode) (*v1beta1.CSINode, error)
+	Delete(name string, options *v1.DeleteOptions) error
+	DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error
+	Get(name string, options v1.GetOptions) (*v1beta1.CSINode, error)
+	List(opts v1.ListOptions) (*v1beta1.CSINodeList, error)
+	Watch(opts v1.ListOptions) (watch.Interface, error)
+	Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.CSINode, err error)
 	CSINodeExpansion
 }
 
@@ -66,19 +61,19 @@ func newCSINodes(c *StorageV1beta1Client) *cSINodes {
 }
 
 // Get takes name of the cSINode, and returns the corresponding cSINode object, and an error if there is any.
-func (c *cSINodes) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.CSINode, err error) {
+func (c *cSINodes) Get(name string, options v1.GetOptions) (result *v1beta1.CSINode, err error) {
 	result = &v1beta1.CSINode{}
 	err = c.client.Get().
 		Resource("csinodes").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
-		Do(ctx).
+		Do().
 		Into(result)
 	return
 }
 
 // List takes label and field selectors, and returns the list of CSINodes that match those selectors.
-func (c *cSINodes) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.CSINodeList, err error) {
+func (c *cSINodes) List(opts v1.ListOptions) (result *v1beta1.CSINodeList, err error) {
 	var timeout time.Duration
 	if opts.TimeoutSeconds != nil {
 		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
@@ -88,13 +83,13 @@ func (c *cSINodes) List(ctx context.Context, opts v1.ListOptions) (result *v1bet
 		Resource("csinodes").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
-		Do(ctx).
+		Do().
 		Into(result)
 	return
 }
 
 // Watch returns a watch.Interface that watches the requested cSINodes.
-func (c *cSINodes) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
+func (c *cSINodes) Watch(opts v1.ListOptions) (watch.Interface, error) {
 	var timeout time.Duration
 	if opts.TimeoutSeconds != nil {
 		timeout = time.Duration(*opts.TimeoutSeconds) * time.Second
@@ -104,94 +99,66 @@ func (c *cSINodes) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interf
 		Resource("csinodes").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
-		Watch(ctx)
+		Watch()
 }
 
 // Create takes the representation of a cSINode and creates it.  Returns the server's representation of the cSINode, and an error, if there is any.
-func (c *cSINodes) Create(ctx context.Context, cSINode *v1beta1.CSINode, opts v1.CreateOptions) (result *v1beta1.CSINode, err error) {
+func (c *cSINodes) Create(cSINode *v1beta1.CSINode) (result *v1beta1.CSINode, err error) {
 	result = &v1beta1.CSINode{}
 	err = c.client.Post().
 		Resource("csinodes").
-		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(cSINode).
-		Do(ctx).
+		Do().
 		Into(result)
 	return
 }
 
 // Update takes the representation of a cSINode and updates it. Returns the server's representation of the cSINode, and an error, if there is any.
-func (c *cSINodes) Update(ctx context.Context, cSINode *v1beta1.CSINode, opts v1.UpdateOptions) (result *v1beta1.CSINode, err error) {
+func (c *cSINodes) Update(cSINode *v1beta1.CSINode) (result *v1beta1.CSINode, err error) {
 	result = &v1beta1.CSINode{}
 	err = c.client.Put().
 		Resource("csinodes").
 		Name(cSINode.Name).
-		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(cSINode).
-		Do(ctx).
+		Do().
 		Into(result)
 	return
 }
 
 // Delete takes name of the cSINode and deletes it. Returns an error if one occurs.
-func (c *cSINodes) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
+func (c *cSINodes) Delete(name string, options *v1.DeleteOptions) error {
 	return c.client.Delete().
 		Resource("csinodes").
 		Name(name).
-		Body(&opts).
-		Do(ctx).
+		Body(options).
+		Do().
 		Error()
 }
 
 // DeleteCollection deletes a collection of objects.
-func (c *cSINodes) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
+func (c *cSINodes) DeleteCollection(options *v1.DeleteOptions, listOptions v1.ListOptions) error {
 	var timeout time.Duration
-	if listOpts.TimeoutSeconds != nil {
-		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
+	if listOptions.TimeoutSeconds != nil {
+		timeout = time.Duration(*listOptions.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
 		Resource("csinodes").
-		VersionedParams(&listOpts, scheme.ParameterCodec).
+		VersionedParams(&listOptions, scheme.ParameterCodec).
 		Timeout(timeout).
-		Body(&opts).
-		Do(ctx).
+		Body(options).
+		Do().
 		Error()
 }
 
 // Patch applies the patch and returns the patched cSINode.
-func (c *cSINodes) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.CSINode, err error) {
+func (c *cSINodes) Patch(name string, pt types.PatchType, data []byte, subresources ...string) (result *v1beta1.CSINode, err error) {
 	result = &v1beta1.CSINode{}
 	err = c.client.Patch(pt).
 		Resource("csinodes").
-		Name(name).
 		SubResource(subresources...).
-		VersionedParams(&opts, scheme.ParameterCodec).
+		Name(name).
 		Body(data).
-		Do(ctx).
-		Into(result)
-	return
-}
-
-// Apply takes the given apply declarative configuration, applies it and returns the applied cSINode.
-func (c *cSINodes) Apply(ctx context.Context, cSINode *storagev1beta1.CSINodeApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.CSINode, err error) {
-	if cSINode == nil {
-		return nil, fmt.Errorf("cSINode provided to Apply must not be nil")
-	}
-	patchOpts := opts.ToPatchOptions()
-	data, err := json.Marshal(cSINode)
-	if err != nil {
-		return nil, err
-	}
-	name := cSINode.Name
-	if name == nil {
-		return nil, fmt.Errorf("cSINode.Name must be provided to Apply")
-	}
-	result = &v1beta1.CSINode{}
-	err = c.client.Patch(types.ApplyPatchType).
-		Resource("csinodes").
-		Name(*name).
-		VersionedParams(&patchOpts, scheme.ParameterCodec).
-		Body(data).
-		Do(ctx).
+		Do().
 		Into(result)
 	return
 }

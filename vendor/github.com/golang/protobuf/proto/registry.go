@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync"
 
-	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/runtime/protoimpl"
@@ -30,7 +29,7 @@ var fileCache sync.Map // map[filePath]fileDescGZIP
 // RegisterFile is called from generated code to register the compressed
 // FileDescriptorProto with the file path for a proto source file.
 //
-// Deprecated: Use protoregistry.GlobalFiles.RegisterFile instead.
+// Deprecated: Use protoregistry.GlobalFiles.Register instead.
 func RegisterFile(s filePath, d fileDescGZIP) {
 	// Decompress the descriptor.
 	zr, err := gzip.NewReader(bytes.NewReader(d))
@@ -54,7 +53,7 @@ func RegisterFile(s filePath, d fileDescGZIP) {
 // FileDescriptor returns the compressed FileDescriptorProto given the file path
 // for a proto source file. It returns nil if not found.
 //
-// Deprecated: Use protoregistry.GlobalFiles.FindFileByPath instead.
+// Deprecated: Use protoregistry.GlobalFiles.RangeFilesByPath instead.
 func FileDescriptor(s filePath) fileDescGZIP {
 	if v, ok := fileCache.Load(s); ok {
 		return v.(fileDescGZIP)
@@ -63,7 +62,14 @@ func FileDescriptor(s filePath) fileDescGZIP {
 	// Find the descriptor in the v2 registry.
 	var b []byte
 	if fd, _ := protoregistry.GlobalFiles.FindFileByPath(s); fd != nil {
-		b, _ = Marshal(protodesc.ToFileDescriptorProto(fd))
+		if fd, ok := fd.(interface{ ProtoLegacyRawDesc() []byte }); ok {
+			b = fd.ProtoLegacyRawDesc()
+		} else {
+			// TODO: Use protodesc.ToFileDescriptorProto to construct
+			// a descriptorpb.FileDescriptorProto and marshal it.
+			// However, doing so causes the proto package to have a dependency
+			// on descriptorpb, leading to cyclic dependency issues.
+		}
 	}
 
 	// Locally cache the raw descriptor form for the file.
@@ -92,7 +98,7 @@ var numFilesCache sync.Map // map[protoreflect.FullName]int
 // RegisterEnum is called from the generated code to register the mapping of
 // enum value names to enum numbers for the enum identified by s.
 //
-// Deprecated: Use protoregistry.GlobalTypes.RegisterEnum instead.
+// Deprecated: Use protoregistry.GlobalTypes.Register instead.
 func RegisterEnum(s enumName, _ enumsByNumber, m enumsByName) {
 	if _, ok := enumCache.Load(s); ok {
 		panic("proto: duplicate enum registered: " + s)
@@ -175,7 +181,7 @@ var messageTypeCache sync.Map // map[messageName]reflect.Type
 // RegisterType is called from generated code to register the message Go type
 // for a message of the given name.
 //
-// Deprecated: Use protoregistry.GlobalTypes.RegisterMessage instead.
+// Deprecated: Use protoregistry.GlobalTypes.Register instead.
 func RegisterType(m Message, s messageName) {
 	mt := protoimpl.X.LegacyMessageTypeOf(m, protoreflect.FullName(s))
 	if err := protoregistry.GlobalTypes.RegisterMessage(mt); err != nil {
@@ -274,7 +280,7 @@ func MessageName(m Message) messageName {
 // RegisterExtension is called from the generated code to register
 // the extension descriptor.
 //
-// Deprecated: Use protoregistry.GlobalTypes.RegisterExtension instead.
+// Deprecated: Use protoregistry.GlobalTypes.Register instead.
 func RegisterExtension(d *ExtensionDesc) {
 	if err := protoregistry.GlobalTypes.RegisterExtension(d); err != nil {
 		panic(err)
