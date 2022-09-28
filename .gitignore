@@ -38,3 +38,5 @@ help.txt
 
 # jsonnet dependency management
 /scripts/vendor
+
+vendor/
