@@ -1,17 +1,12 @@
-reviewers:
-  - CatherineF-dev
-  - dgrisonnet
-  - fpetkovski
-  - logicalhan
-  - mrueg
-  - rexagod
 approvers:
-  - dgrisonnet
-  - fpetkovski
-  - mrueg
-emeritus_approvers:
-  - LiliC
-  - andyxning
-  - brancz
-  - tariq1890
-  - zouyee
+- dislbenn
+- marcolan018
+- ngraham20
+- subbarao-meduri
+- bjoydeep
+
+reviewers:
+- clyang82
+- haoqing0110
+- morvencao
+- songleo
