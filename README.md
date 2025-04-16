@@ -405,10 +405,6 @@ For the full list of arguments available, see the documentation in [docs/develop
 
 Starting from the kube-state-metrics chart `v2.13.3` (kube-state-metrics image `v1.9.8`), the official [Helm chart](https://artifacthub.io/packages/helm/prometheus-community/kube-state-metrics/) is maintained in [prometheus-community/helm-charts](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics). Starting from kube-state-metrics chart `v3.0.0` only kube-state-metrics images of `v2.0.0 +` are supported.
 
-#### Helm Chart
-
-Starting from the kube-state-metrics chart `v2.13.3` (kube-state-metrics image `v1.9.8`), the official [Helm chart](https://artifacthub.io/packages/helm/prometheus-community/kube-state-metrics/) is maintained in [prometheus-community/helm-charts](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-state-metrics). Starting from kube-state-metrics chart `v3.0.0` only kube-state-metrics images of `v2.0.0 +` are supported.
-
 #### Development
 
 When developing, test a metric dump against your local Kubernetes cluster by running:
