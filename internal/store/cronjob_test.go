@@ -130,10 +130,6 @@ func TestCronJobStore(t *testing.T) {
 						"app":              "mysql-server",
 						"app.k8s.io/owner": "@foo",
 					},
-					Annotations: map[string]string{
-						"app":              "mysql-server",
-						"app.k8s.io/owner": "@foo",
-					},
 				},
 				Status: batchv1.CronJobStatus{
 					Active:             []v1.ObjectReference{{Name: "FakeJob1"}, {Name: "FakeJob2"}},

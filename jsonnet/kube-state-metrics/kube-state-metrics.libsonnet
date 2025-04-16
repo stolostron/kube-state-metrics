@@ -478,5 +478,3 @@
     clusterRoleBinding: ksm.clusterRoleBinding,
   },
 }
-
-
