@@ -164,7 +164,7 @@ jobs:
 
     - name: Benchmark tests
       run: |
-        BENCHSTAT_OUTPUT_FILE=result.txt make test-benchmark-compare
+        BENCHSTAT_OUTPUT_FILE=result.txt make -f Makefile.prow test-benchmark-compare
     - run: |
         echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
         cat result.txt >> "$GITHUB_STEP_SUMMARY"
