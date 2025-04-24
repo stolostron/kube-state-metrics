@@ -19,6 +19,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net/http/httptest"
@@ -40,6 +41,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 	samplev1alpha1 "k8s.io/sample-controller/pkg/apis/samplecontroller/v1alpha1"
 	samplefake "k8s.io/sample-controller/pkg/generated/clientset/versioned/fake"
 
@@ -70,6 +72,10 @@ func BenchmarkKubeStateMetrics(b *testing.B) {
 		b.Errorf("error injecting resources: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+
+	klogFlags := flag.NewFlagSet("klog", flag.ExitOnError)
+	klog.InitFlags(klogFlags)
+	klogFlags.Set("logtostderr", "false")
 	defer cancel()
 	reg := prometheus.NewRegistry()
 
@@ -100,7 +106,7 @@ func BenchmarkKubeStateMetrics(b *testing.B) {
 	// This test is not suitable to be compared in terms of time, as it includes
 	// a one second wait. Use for memory allocation comparisons, profiling, ...
 	handler := metricshandler.New(&options.Options{}, kubeClient, builder, false)
-	b.Run("GenerateMetrics", func(b *testing.B) {
+	b.Run("GenerateMetrics", func(_ *testing.B) {
 		handler.ConfigureSharding(ctx, 0, 1)
 
 		// Wait for caches to fill
@@ -861,7 +867,7 @@ func pod(client *fake.Clientset, index int) error {
 
 func foo(client *samplefake.Clientset, index int) error {
 	i := strconv.Itoa(index)
-	desiredReplicas := int32(index)
+	desiredReplicas := int32(index) //nolint:gosec
 
 	foo := samplev1alpha1.Foo{
 		ObjectMeta: metav1.ObjectMeta{
