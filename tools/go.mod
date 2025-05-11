@@ -115,7 +115,7 @@ require (
 	github.com/skeema/knownhosts v1.2.1 // indirect
 	github.com/spf13/afero v1.8.2 // indirect
 	github.com/spf13/cobra v1.4.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/zealic/xignore v0.3.3 // indirect
