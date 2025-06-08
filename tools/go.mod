@@ -8,7 +8,7 @@ require (
 	github.com/google/go-jsonnet v0.20.0
 	github.com/hairyhenderson/gomplate/v3 v3.11.7
 	github.com/jsonnet-bundler/jsonnet-bundler v0.5.1
-	golang.org/x/perf v0.0.0-20231127181059-b53752263861
+	golang.org/x/perf b481878a17be
 )
 
 require (
