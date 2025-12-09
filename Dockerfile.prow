@@ -16,5 +16,5 @@ LABEL io.k8s.display-name="kube-state-metrics" \
       summary="This is a component that exposes metrics about Kubernetes objects."
 
 COPY --from=builder /workspace/kube-state-metrics  /usr/bin/kube-state-metrics
-USER nobody
+USER 1001
 ENTRYPOINT ["/usr/bin/kube-state-metrics"]
