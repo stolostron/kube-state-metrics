@@ -20,7 +20,8 @@ USER 1001
 ENTRYPOINT ["/usr/bin/kube-state-metrics"]
 
 LABEL com.redhat.component="kube-state-metrics" \
-name="kube-state-metrics" \
+name="rhacm2/kube-state-metrics-rhel9" \
+cpe="cpe:/a:redhat:acm:2.15::el9" \
 summary="kube-state-metrics" \
 io.openshift.expose-services="" \
 io.openshift.tags="data,images" \
