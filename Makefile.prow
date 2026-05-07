@@ -1,7 +1,7 @@
 include Makefile
 
 build-local:
-	GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=1 go build -ldflags "-s -w -X ${PKG}/version.Version=${TAG} -X ${PKG}/version.Revision=${GIT_COMMIT} -X ${PKG}/version.Branch=${BRANCH} -X ${PKG}/version.BuildUser=${USER}@${HOST} -X ${PKG}/version.BuildDate=${BUILD_DATE}" -o kube-state-metrics
+	GOOS=$(OS) GOARCH=$(ARCH) CGO_ENABLED=1 GOEXPERIMENT=strictfipsruntime go build -ldflags "-s -w -X ${PKG}/version.Version=${TAG} -X ${PKG}/version.Revision=${GIT_COMMIT} -X ${PKG}/version.Branch=${BRANCH} -X ${PKG}/version.BuildUser=${USER}@${HOST} -X ${PKG}/version.BuildDate=${BUILD_DATE}" -o kube-state-metrics
 
 LATEST_RELEASE_BRANCH := release-$(shell cut -d. -f1,2 COMPONENT_VERSION)
 
