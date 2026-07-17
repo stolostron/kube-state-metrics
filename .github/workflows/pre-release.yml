@@ -1,9 +1,9 @@
 name: Pre-release
 
-on:
-  push:
-    tags:
-      - 'v*'
+# on:
+#   push:
+#     tags:
+#       - 'v*'
 
 permissions:
   contents: write
@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (full history)
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
       - name: Extract versions
         id: versions
         run: |
           # Extract Go version from Dockerfile
-          GO_VERSION=$(grep '^ARG GOVERSION=' Dockerfile | cut -d'=' -f2)
+          GO_VERSION=$(cat .go-version)
           echo "go-version=${GO_VERSION}" >> $GITHUB_OUTPUT
           
           # Extract k8s.io/client-go version from go.mod
@@ -31,12 +31,12 @@ jobs:
           echo "📦 Go version: ${GO_VERSION}"
           echo "📦 k8s.io/client-go version: ${CLIENT_GO_VERSION}"  
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ steps.versions.outputs.go-version }}
+          go-version-file: '.go-version'
         id: go
       - name: Make pre-release
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
         with:
           version: latest
           args: release --clean

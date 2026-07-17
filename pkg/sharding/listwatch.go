@@ -81,6 +81,12 @@ func (s *shardedListWatch) Watch(options metav1.ListOptions) (watch.Interface, e
 	}
 
 	return watch.Filter(w, func(in watch.Event) (out watch.Event, keep bool) {
+		// Bookmarks are stream control events. They carry a resource version but
+		// no UID, so filtering them would route every bookmark to a single shard.
+		if in.Type == watch.Bookmark {
+			return in, true
+		}
+
 		a, err := meta.Accessor(in.Object)
 		if err != nil {
 			// TODO(brancz): needs logging
@@ -89,6 +95,17 @@ func (s *shardedListWatch) Watch(options metav1.ListOptions) (watch.Interface, e
 
 		return in, s.sharding.keep(a)
 	}), nil
+}
+
+// IsWatchListSemanticsUnSupported delegates to the underlying ListerWatcher if it implements this interface.
+func (s *shardedListWatch) IsWatchListSemanticsUnSupported() bool {
+	type unsupported interface {
+		IsWatchListSemanticsUnSupported() bool
+	}
+	if u, ok := s.lw.(unsupported); ok {
+		return u.IsWatchListSemanticsUnSupported()
+	}
+	return false
 }
 
 type sharding struct {
