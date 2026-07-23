@@ -23,7 +23,6 @@ spec:
 
 <!-- markdownlint-disable blanks-around-fences -->
 <!-- markdownlint-disable link-image-reference-definitions -->
-[embedmd]:# (../../help.txt)
 ```txt
 $ kube-state-metrics -h
 kube-state-metrics is a simple service that listens to the Kubernetes API server and generates metrics about the state of the objects.
@@ -40,6 +39,7 @@ Available Commands:
 Flags:
       --add_dir_header                                       If true, adds the file directory to the header of the log messages
       --alsologtostderr                                      log to standard error as well as files (no effect when -logtostderr=true)
+      --alsologtostderrthreshold severity                    logs at or above this threshold go to stderr when -alsologtostderr=true (no effect when -logtostderr=true)
       --apiserver string                                     The URL of the apiserver to use as a master
       --auth-filter                                          If true, requires authentication and authorization through Kubernetes API to access metrics endpoints
       --auto-gomemlimit                                      Automatically set GOMEMLIMIT to match container or system memory limit. (experimental)
@@ -54,6 +54,7 @@ Flags:
   -h, --help                                                 Print Help text
       --host string                                          Host to expose metrics on. (default "::")
       --kubeconfig string                                    Absolute path to the kubeconfig file
+      --legacy_stderr_threshold_behavior                     If true, stderrthreshold is ignored when logtostderr=true (legacy behavior). If false, stderrthreshold is honored even when logtostderr=true (default true)
       --log_backtrace_at traceLocation                       when logging hits line file:N, emit a stack trace (default :0)
       --log_dir string                                       If non-empty, write log files in this directory (no effect when -logtostderr=true)
       --log_file string                                      If non-empty, use this log file (no effect when -logtostderr=true)
@@ -80,7 +81,7 @@ Flags:
       --shard int32                                          The instances shard nominal (zero indexed) within the total number of shards. (default 0)
       --skip_headers                                         If true, avoid header prefixes in the log messages
       --skip_log_headers                                     If true, avoid headers when opening log files (no effect when -logtostderr=true)
-      --stderrthreshold severity                             logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
+      --stderrthreshold severity                             logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true unless -legacy_stderr_threshold_behavior=false) (default 2)
       --telemetry-host string                                Host to expose kube-state-metrics self metrics on. (default "::")
       --telemetry-port int                                   Port to expose kube-state-metrics self metrics on. (default 8081)
       --tls-config string                                    Path to the TLS configuration file
@@ -91,6 +92,7 @@ Flags:
       --vmodule moduleSpec                                   comma-separated list of pattern=N settings for file-filtered logging
 
 Use "kube-state-metrics [command] --help" for more information about a command.
+
 ```
 <!-- markdownlint-enable link-image-reference-definitions -->
 <!-- markdownlint-enable blanks-around-fences -->
